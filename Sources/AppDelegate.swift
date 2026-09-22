@@ -1,20 +1,47 @@
 import Cocoa
 import SwiftUI
 
+public class TyperPanel: NSPanel {
+    public override var canBecomeKey: Bool { true }
+    public override var canBecomeMain: Bool { true }
+
+    public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Support Control+C, Control+V, Control+A, Control+X, Control+Z for users with Control shortcut habits
+        if event.modifierFlags.contains(.control) {
+            let key = event.charactersIgnoringModifiers?.lowercased()
+            if key == "c" {
+                return NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: self)
+            } else if key == "v" {
+                return NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: self)
+            } else if key == "a" {
+                return NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: self)
+            } else if key == "x" {
+                return NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: self)
+            } else if key == "z" {
+                return NSApp.sendAction(Selector(("undo:")), to: nil, from: self)
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
 @MainActor
 public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     public static var shared: AppDelegate?
     private var statusItem: NSStatusItem!
-    public var panel: NSPanel!
+    public var panel: TyperPanel!
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
         AppDelegate.shared = self
+
+        // Setup Main Menu (Required by macOS for Command+C/V/A/X/Z shortcuts to work in TextEditor/NSTextView)
+        setupMainMenu()
 
         // Run as accessory (menu bar item)
         NSApp.setActivationPolicy(.accessory)
 
         // Setup Floating Window / Panel
-        let p = NSPanel(
+        let p = TyperPanel(
             contentRect: NSRect(x: 0, y: 0, width: 580, height: 680),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
@@ -60,10 +87,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 AppState.shared.toggleTyping()
             }
         }
-        HotKeyManager.shared.register()
+        HotKeyManager.shared.register(option: AppState.shared.hotKeyOption)
 
-        // Trigger system accessibility check and prompt on launch
-        AppState.shared.checkPermissions(prompt: true)
+        // Silently check accessibility permission on launch without throwing intrusive modals
+        AppState.shared.checkPermissions(prompt: false)
 
         // Auto-refresh permission status when app becomes active
         NotificationCenter.default.addObserver(
@@ -128,5 +155,39 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     @objc public func quitApp() {
         NSApplication.shared.terminate(nil)
+    }
+
+    private func setupMainMenu() {
+        let mainMenu = NSMenu()
+
+        // Application Menu
+        let appMenuItem = NSMenuItem()
+        let appMenu = NSMenu()
+        appMenu.addItem(withTitle: "关于 Typer", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "隐藏 Typer", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(withTitle: "隐藏其他", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "显示全部", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(NSMenuItem.separator())
+        appMenu.addItem(withTitle: "退出 Typer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        mainMenu.addItem(appMenuItem)
+
+        // Edit Menu (Essential for Cut, Copy, Paste, Select All, Undo shortcuts to work in macOS)
+        let editMenuItem = NSMenuItem()
+        let editMenu = NSMenu(title: "编辑")
+        editMenu.addItem(withTitle: "撤销", action: Selector(("undo:")), keyEquivalent: "z")
+        let redoItem = editMenu.addItem(withTitle: "重做", action: Selector(("redo:")), keyEquivalent: "Z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(NSMenuItem.separator())
+        editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenuItem.submenu = editMenu
+        mainMenu.addItem(editMenuItem)
+
+        NSApp.mainMenu = mainMenu
     }
 }

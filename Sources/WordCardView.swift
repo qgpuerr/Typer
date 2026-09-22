@@ -110,36 +110,30 @@ public struct WordCardView: View {
             .animation(.spring(response: 0.28, dampingFraction: 0.65), value: isHighlightedForMerge)
     }
 
-    // MARK: - Chinese Card View (With Pinyin, Cut capability, and Card Box)
+    // MARK: - Chinese Card View (Pure Word Capsule, Cut & Drag Merge capability)
     private var chineseCardView: some View {
-        let cardContent = VStack(spacing: 2) {
-            // Top: Pinyin Text (Clean floating text, NO background frame)
-            pinyinBadgeView
-
-            // Bottom: Characters Box with Razor Cutting Overlay
-            charactersBoxView
-        }
-        .padding(.horizontal, 7)
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(isHighlightedForMerge ? TyperTheme.cardBg : (isDropTarget ? TyperTheme.cardBg : TyperTheme.itemBg))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .stroke(
-                    isHighlightedForMerge ? TyperTheme.activeBorder : (isDropTarget ? TyperTheme.activeBorder : TyperTheme.borderFaint),
-                    lineWidth: isHighlightedForMerge ? 1.8 : 1
-                )
-        )
-        .scaleEffect(isHighlightedForMerge ? 1.04 : 1.0)
-        .shadow(
-            color: isHighlightedForMerge ? Color.black.opacity(0.08) : Color.black.opacity(0.02),
-            radius: isHighlightedForMerge ? 6 : 2,
-            x: 0,
-            y: isHighlightedForMerge ? 2 : 1
-        )
-        .animation(.spring(response: 0.28, dampingFraction: 0.65), value: isHighlightedForMerge)
+        let cardContent = charactersBoxView
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isHighlightedForMerge ? TyperTheme.cardBg : (isDropTarget ? TyperTheme.cardBg : TyperTheme.itemBg))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(
+                        isHighlightedForMerge ? TyperTheme.activeBorder : (isDropTarget ? TyperTheme.activeBorder : TyperTheme.borderFaint),
+                        lineWidth: isHighlightedForMerge ? 1.8 : 1
+                    )
+            )
+            .scaleEffect(isHighlightedForMerge ? 1.04 : 1.0)
+            .shadow(
+                color: isHighlightedForMerge ? Color.black.opacity(0.08) : Color.black.opacity(0.02),
+                radius: isHighlightedForMerge ? 6 : 2,
+                x: 0,
+                y: isHighlightedForMerge ? 2 : 1
+            )
+            .animation(.spring(response: 0.28, dampingFraction: 0.65), value: isHighlightedForMerge)
 
         return Group {
             if canBeCut {
@@ -167,22 +161,6 @@ public struct WordCardView: View {
                     }
             }
         }
-    }
-
-    // MARK: - Pinyin Badge (No background frame, clean floating text)
-    private var pinyinBadgeView: some View {
-        Button(action: {
-            appState.editPinyinText = segment.pinyin
-            appState.editingSegment = segment
-        }) {
-            Text(segment.pinyin)
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundColor(TyperTheme.textSecondary)
-                .frame(height: 12)
-                .padding(.horizontal, 2)
-        }
-        .buttonStyle(.plain)
-        .help("点击修改拼音")
     }
 
     // MARK: - Characters Box & Razor Cut

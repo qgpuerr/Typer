@@ -79,19 +79,29 @@ cat <<EOF > "${CONTENTS_DIR}/Info.plist"
 </plist>
 EOF
 
-# 进行 ad-hoc 签名以保证 macOS 辅助功能权限持久性
-echo "🔏 为应用进行本地代码签名..."
-codesign --force --deep --sign - "${APP_BUNDLE}"
+# 进行代码签名以保证 macOS 辅助功能权限持久性
+SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep "Apple Development" | head -n 1 | awk -F'"' '{print $2}')
+if [ -z "$SIGN_IDENTITY" ]; then
+    SIGN_IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null | grep -E '^[ ]+[0-9]+\)' | head -n 1 | awk -F'"' '{print $2}')
+fi
+
+if [ -n "$SIGN_IDENTITY" ]; then
+    echo "🔏 检测到开发者证书，正在签名: ${SIGN_IDENTITY} (更新应用无需重新授权)..."
+    codesign --force --deep --sign "${SIGN_IDENTITY}" "${APP_BUNDLE}"
+else
+    echo "🔏 未检测到开发者证书，使用临时本地签名 (更新后需重新授权)..."
+    codesign --force --deep --sign - "${APP_BUNDLE}"
+fi
 
 # 复制到用户应用程序目录并创建桌面快捷方式
 mkdir -p ~/Applications
 rm -rf ~/Applications/"${APP_BUNDLE}"
 cp -R "${APP_BUNDLE}" ~/Applications/
-rm -f ~/Desktop/"${APP_BUNDLE}"
-ln -s ~/Applications/"${APP_BUNDLE}" ~/Desktop/"${APP_BUNDLE}"
+rm -f ~/Desktop/"${APP_BUNDLE}" 2>/dev/null || true
+ln -sf ~/Applications/"${APP_BUNDLE}" ~/Desktop/"${APP_BUNDLE}" 2>/dev/null || true
 
 echo "📦 正在制作可分享的安装包 (DMG & ZIP)..."
-ditto -c -k --keepParent "${APP_BUNDLE}" ~/Desktop/Typer.zip
+ditto -c -k --keepParent "${APP_BUNDLE}" ~/Desktop/Typer.zip 2>/dev/null || ditto -c -k --keepParent "${APP_BUNDLE}" ./Typer.zip
 
 # 制作带 Applications 快捷方式的专业 DMG
 DMG_STAGE="dmg_staging"

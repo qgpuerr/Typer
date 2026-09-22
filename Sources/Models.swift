@@ -6,11 +6,13 @@ public struct Preset: Identifiable, Codable, Equatable {
     public var id: UUID
     public var name: String
     public var text: String
+    public var segments: [WordSegment]?
 
-    public init(id: UUID = UUID(), name: String, text: String) {
+    public init(id: UUID = UUID(), name: String, text: String, segments: [WordSegment]? = nil) {
         self.id = id
         self.name = name
         self.text = text
+        self.segments = segments
     }
 }
 
@@ -69,10 +71,16 @@ public final class AppState: ObservableObject {
     @Published public var customPinyinMap: [String: String] = [:]
 
     @Published public var inputMethod: InputMethod = .pinyin
+    @Published public var hotKeyOption: HotKeyOption = .defaultOption
     @Published public var speed: TypingSpeed = .normal
     @Published public var countdownDuration: Int = 3
+    @Published public var imeThemeColorHex: String = "#263D59"
     @Published public var isTyping: Bool = false
     @Published public var countdownRemaining: Int = 0
+
+    public var imeThemeColor: Color {
+        Color(hex: imeThemeColorHex)
+    }
 
     // Popover / Sheet editing
     @Published public var editingSegment: WordSegment?
@@ -87,6 +95,9 @@ public final class AppState: ObservableObject {
     // Permission tracking
     @Published public var hasAccessibilityPermission: Bool = false
 
+    // Target application tracking
+    public var lastActiveApp: NSRunningApplication?
+
     private var saveCancellable: AnyCancellable?
     private var isUpdatingInternally: Bool = false
     private var activeTypingTask: Task<Void, Never>?
@@ -95,10 +106,30 @@ public final class AppState: ObservableObject {
     private let customPinyinKey = "screen_typer_custom_pinyin_v1"
     private let activePresetKey = "screen_typer_active_preset_id_v1"
     private let inputMethodKey = "screen_typer_input_method_v1"
+    private let hotKeyKey = "screen_typer_hotkey_v1"
+    private let imeThemeColorKey = "screen_typer_ime_theme_color_v1"
 
     public init() {
         loadData()
         checkPermissions(prompt: false)
+
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier != Bundle.main.bundleIdentifier {
+            self.lastActiveApp = front
+        }
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notif in
+            if let app = notif.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+               app.bundleIdentifier != Bundle.main.bundleIdentifier {
+                Task { @MainActor [weak self] in
+                    self?.lastActiveApp = app
+                }
+            }
+        }
     }
 
     @discardableResult
@@ -133,16 +164,16 @@ public final class AppState: ObservableObject {
             self.customPinyinMap = [:]
         }
 
+        let defaultPreset = Preset(name: "功能演示", text: "支持精准剪刀裁切、长词拖拽合并，零失误拟真打字。")
+
         if let data = UserDefaults.standard.data(forKey: presetsKey),
            let saved = try? JSONDecoder().decode([Preset].self, from: data),
            !saved.isEmpty {
-            self.presets = saved
+            // Remove legacy default presets, keeping only '功能演示' and user's custom presets
+            let filtered = saved.filter { $0.name != "默认台词" && $0.name != "问候开场" }
+            self.presets = filtered.isEmpty ? [defaultPreset] : filtered
         } else {
-            self.presets = [
-                Preset(name: "默认台词", text: "点一下屏幕，输入0和123，我们一起去天安门广场看升旗！"),
-                Preset(name: "问候开场", text: "各位观众朋友大家好，今天为大家演示智能输入。"),
-                Preset(name: "功能演示", text: "支持精准剪刀裁切、长词拖拽合并，零失误拟真打字。")
-            ]
+            self.presets = [defaultPreset]
         }
 
         if let savedActiveString = UserDefaults.standard.string(forKey: activePresetKey),
@@ -160,23 +191,48 @@ public final class AppState: ObservableObject {
             self.inputMethod = .pinyin
         }
 
+        if let data = UserDefaults.standard.data(forKey: hotKeyKey),
+           let savedHotKey = try? JSONDecoder().decode(HotKeyOption.self, from: data) {
+            self.hotKeyOption = savedHotKey
+        } else {
+            self.hotKeyOption = .defaultOption
+        }
+
+        if let savedThemeHex = UserDefaults.standard.string(forKey: imeThemeColorKey), !savedThemeHex.isEmpty {
+            self.imeThemeColorHex = savedThemeHex
+        } else {
+            self.imeThemeColorHex = "#263D59"
+        }
+
         if let current = presets.first(where: { $0.id == activePresetId }) {
             self.currentText = current.text
-            self.segments = PinyinEngine.shared.parse(text: current.text, customMap: self.customPinyinMap, inputMethod: self.inputMethod)
+            if let savedSegments = current.segments, !savedSegments.isEmpty, savedSegments.map(\.raw).joined() == current.text {
+                self.segments = savedSegments
+            } else {
+                self.segments = PinyinEngine.shared.parse(text: current.text, customMap: self.customPinyinMap, inputMethod: self.inputMethod)
+                if let idx = presets.firstIndex(where: { $0.id == activePresetId }) {
+                    presets[idx].segments = self.segments
+                }
+            }
         }
     }
 
     public func saveData() {
         if let index = presets.firstIndex(where: { $0.id == activePresetId }) {
             presets[index].text = currentText
+            presets[index].segments = segments
         }
 
         if let encoded = try? JSONEncoder().encode(presets) {
             UserDefaults.standard.set(encoded, forKey: presetsKey)
         }
+        if let encodedHotKey = try? JSONEncoder().encode(hotKeyOption) {
+            UserDefaults.standard.set(encodedHotKey, forKey: hotKeyKey)
+        }
         UserDefaults.standard.set(activePresetId.uuidString, forKey: activePresetKey)
         UserDefaults.standard.set(customPinyinMap, forKey: customPinyinKey)
         UserDefaults.standard.set(inputMethod.rawValue, forKey: inputMethodKey)
+        UserDefaults.standard.set(imeThemeColorHex, forKey: imeThemeColorKey)
 
         self.saveStatus = "已保存"
     }
@@ -186,10 +242,16 @@ public final class AppState: ObservableObject {
         guard preset.id != activePresetId else { return }
         if let idx = presets.firstIndex(where: { $0.id == activePresetId }) {
             presets[idx].text = currentText
+            presets[idx].segments = segments
         }
         activePresetId = preset.id
         currentText = preset.text
-        rebuildSegments()
+
+        if let saved = preset.segments, !saved.isEmpty, saved.map(\.raw).joined() == preset.text {
+            self.segments = saved
+        } else {
+            rebuildSegments()
+        }
 
         Task(priority: .utility) { @MainActor in
             self.saveData()
@@ -239,6 +301,9 @@ public final class AppState: ObservableObject {
 
     public func rebuildSegments() {
         self.segments = PinyinEngine.shared.parse(text: currentText, customMap: customPinyinMap, inputMethod: inputMethod)
+        if let idx = presets.firstIndex(where: { $0.id == activePresetId }) {
+            presets[idx].segments = self.segments
+        }
     }
 
     public func setInputMethod(_ method: InputMethod) {
@@ -248,9 +313,29 @@ public final class AppState: ObservableObject {
         saveData()
     }
 
+    public func setHotKeyOption(_ option: HotKeyOption) {
+        guard option != self.hotKeyOption else { return }
+        self.hotKeyOption = option
+        HotKeyManager.shared.register(option: option)
+        saveData()
+    }
+
+    public func setIMEThemeColor(_ hex: String) {
+        let clean = hex.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !clean.isEmpty else { return }
+        let formatted = clean.hasPrefix("#") ? clean : "#\(clean)"
+        guard formatted != self.imeThemeColorHex else { return }
+        self.imeThemeColorHex = formatted
+        saveData()
+    }
+
     private func syncTextFromSegments() {
         isUpdatingInternally = true
         currentText = segments.map(\.raw).joined()
+        if let idx = presets.firstIndex(where: { $0.id == activePresetId }) {
+            presets[idx].text = currentText
+            presets[idx].segments = segments
+        }
         isUpdatingInternally = false
         saveData()
     }
@@ -405,10 +490,14 @@ public final class AppState: ObservableObject {
         activeTypingTask = Task { [weak self] in
             guard let self = self else { return }
 
-            if self.countdownDuration > 0 {
-                // Hide panel so focus immediately returns to user's target app
-                AppDelegate.shared?.panel.orderOut(nil)
+            // Immediately hide Typer panel, deactivate Typer, and activate the user's target app
+            AppDelegate.shared?.panel.orderOut(nil)
+            NSApp.deactivate()
+            if let target = self.lastActiveApp {
+                target.activate(options: [.activateIgnoringOtherApps])
+            }
 
+            if self.countdownDuration > 0 {
                 for i in stride(from: self.countdownDuration, through: 1, by: -1) {
                     if Task.isCancelled { break }
                     self.countdownRemaining = i
@@ -416,9 +505,8 @@ public final class AppState: ObservableObject {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                 }
             } else {
-                // Hide panel and wait 350ms so target window gains key focus
-                AppDelegate.shared?.panel.orderOut(nil)
-                try? await Task.sleep(nanoseconds: 350_000_000)
+                // Wait 250ms so target window gains key focus
+                try? await Task.sleep(nanoseconds: 250_000_000)
             }
 
             guard !Task.isCancelled else {

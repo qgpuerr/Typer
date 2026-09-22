@@ -55,8 +55,7 @@ public final class PermissionManager: ObservableObject {
     }
 
     public func openAccessibilitySettings() {
-        _ = checkAccessibility(prompt: true)
-
+        // Directly navigate to System Settings > Privacy > Accessibility without redundant alert
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }

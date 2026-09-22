@@ -2,9 +2,9 @@ import Foundation
 import NaturalLanguage
 
 public enum InputMethod: String, CaseIterable, Identifiable, Codable {
-    case pinyin = "拼音 (全拼)"
-    case xiaohe = "双拼 (小鹤)"
-    case ziranma = "双拼 (自然码)"
+    case pinyin = "拼音 · 全拼"
+    case xiaohe = "双拼 · 小鹤双拼"
+    case ziranma = "双拼 · 自然码/微软"
 
     public var id: String { rawValue }
 
@@ -18,9 +18,9 @@ public enum InputMethod: String, CaseIterable, Identifiable, Codable {
 
     public var menuTitle: String {
         switch self {
-        case .pinyin: return "全拼输入法 · 默认"
-        case .xiaohe: return "双拼输入法 · 小鹤双拼"
-        case .ziranma: return "双拼输入法 · 自然码/微软"
+        case .pinyin: return "拼音 · 全拼"
+        case .xiaohe: return "双拼 · 小鹤双拼"
+        case .ziranma: return "双拼 · 自然码/微软"
         }
     }
 }
@@ -55,7 +55,26 @@ public final class PinyinEngine: Sendable {
 
     private let shengmuList = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"]
 
-    private init() {}
+    /// 高频中文复合词/输入法短语白名单（解决 NLTokenizer 语言学最小颗粒度切分过碎的问题）
+    public static let defaultLexicon: Set<String> = [
+        // 核心默认演示词与应用操作
+        "精准", "裁切", "长词", "拟真", "零失误",
+        "剪刀", "拖拽", "合并", "打字机", "状态栏", "菜单栏", "悬浮窗",
+        // 输入法与输入习惯
+        "输入法", "全拼", "双拼", "小鹤双拼", "自然码", "候选词", "翻页", "回车", "空格", "退格",
+        "连击", "连打", "快捷键", "辅助功能", "深色模式", "浅色模式", "占位符",
+        // 常见科技与日常复合词（易被系统切碎的高频词）
+        "跨平台", "自适应", "轻量级", "沉浸式", "开箱即用", "短视频", "黑科技", "互联网",
+        "高并发", "多线程", "低代码", "高性能", "端到端", "首选项",
+        "微服务", "大模型", "人工智能", "机器学习", "深度学习", "自然语言",
+        "与此同时", "不知不觉", "由此可见", "总而言之", "显而易见", "实事求是"
+    ]
+
+    private let commonLexicon: Set<String>
+
+    private init(lexicon: Set<String> = PinyinEngine.defaultLexicon) {
+        self.commonLexicon = lexicon
+    }
 
     /// Converts Chinese text to Mandarin Latin Pinyin (lowercase without accents)
     public func convertToPinyin(_ text: String) -> String {
@@ -65,6 +84,18 @@ public final class PinyinEngine: Sendable {
         let result = (mutable as String).lowercased()
         let cleaned = result.components(separatedBy: CharacterSet.letters.inverted).joined()
         return cleaned.isEmpty ? result : cleaned
+    }
+
+    /// Converts Chinese text to syllable-separated pinyin with apostrophes (e.g. "ni'hao")
+    public func convertToSyllables(_ text: String) -> String {
+        let mutable = NSMutableString(string: text) as CFMutableString
+        CFStringTransform(mutable, nil, kCFStringTransformMandarinLatin, false)
+        CFStringTransform(mutable, nil, kCFStringTransformStripDiacritics, false)
+        let raw = (mutable as String).lowercased()
+        let words = raw.split(separator: " ").map {
+            $0.components(separatedBy: CharacterSet.letters.inverted).joined()
+        }.filter { !$0.isEmpty }
+        return words.isEmpty ? convertToPinyin(text) : words.joined(separator: "'")
     }
 
     /// Converts Chinese text to Shuangpin (Double Pinyin) keystrokes
@@ -245,7 +276,47 @@ public final class PinyinEngine: Sendable {
             self.parseGaps(trailing, into: &result)
         }
 
-        return result
+        return mergeLexiconPhrases(result, customMap: customMap, inputMethod: inputMethod)
+    }
+
+    private func mergeLexiconPhrases(_ segments: [WordSegment], customMap: [String: String], inputMethod: InputMethod) -> [WordSegment] {
+        guard segments.count >= 2 else { return segments }
+
+        var output: [WordSegment] = []
+        var i = 0
+        while i < segments.count {
+            var matched = false
+            let maxLen = min(4, segments.count - i)
+            if maxLen >= 2 {
+                for length in (2...maxLen).reversed() {
+                    let slice = segments[i..<(i + length)]
+                    guard slice.allSatisfy({ $0.type == .chinese }) else { continue }
+                    let combined = slice.map(\.raw).joined()
+
+                    if commonLexicon.contains(combined) || customMap[combined] != nil {
+                        let strokes: String
+                        let isCustom: Bool
+                        if let custom = customMap[combined] {
+                            strokes = custom
+                            let defaultVal = self.convertText(combined, inputMethod: inputMethod)
+                            isCustom = (custom.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != defaultVal.lowercased())
+                        } else {
+                            strokes = self.convertText(combined, inputMethod: inputMethod)
+                            isCustom = false
+                        }
+                        output.append(WordSegment(raw: combined, pinyin: strokes, isCustomized: isCustom, type: .chinese))
+                        i += length
+                        matched = true
+                        break
+                    }
+                }
+            }
+            if !matched {
+                output.append(segments[i])
+                i += 1
+            }
+        }
+        return output
     }
 
     private func parseGaps(_ gapStr: String, into result: inout [WordSegment]) {
