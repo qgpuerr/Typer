@@ -68,6 +68,7 @@ public final class AppState: ObservableObject {
     @Published public var segments: [WordSegment] = []
     @Published public var customPinyinMap: [String: String] = [:]
 
+    @Published public var inputMethod: InputMethod = .pinyin
     @Published public var speed: TypingSpeed = .normal
     @Published public var countdownDuration: Int = 3
     @Published public var isTyping: Bool = false
@@ -93,6 +94,7 @@ public final class AppState: ObservableObject {
     private let presetsKey = "screen_typer_presets_v1"
     private let customPinyinKey = "screen_typer_custom_pinyin_v1"
     private let activePresetKey = "screen_typer_active_preset_id_v1"
+    private let inputMethodKey = "screen_typer_input_method_v1"
 
     public init() {
         loadData()
@@ -151,9 +153,16 @@ public final class AppState: ObservableObject {
             self.activePresetId = presets.first?.id ?? UUID()
         }
 
+        if let savedMethodRaw = UserDefaults.standard.string(forKey: inputMethodKey),
+           let savedMethod = InputMethod(rawValue: savedMethodRaw) {
+            self.inputMethod = savedMethod
+        } else {
+            self.inputMethod = .pinyin
+        }
+
         if let current = presets.first(where: { $0.id == activePresetId }) {
             self.currentText = current.text
-            self.segments = PinyinEngine.shared.parse(text: current.text, customMap: self.customPinyinMap)
+            self.segments = PinyinEngine.shared.parse(text: current.text, customMap: self.customPinyinMap, inputMethod: self.inputMethod)
         }
     }
 
@@ -167,6 +176,7 @@ public final class AppState: ObservableObject {
         }
         UserDefaults.standard.set(activePresetId.uuidString, forKey: activePresetKey)
         UserDefaults.standard.set(customPinyinMap, forKey: customPinyinKey)
+        UserDefaults.standard.set(inputMethod.rawValue, forKey: inputMethodKey)
 
         self.saveStatus = "已保存"
     }
@@ -228,7 +238,14 @@ public final class AppState: ObservableObject {
     }
 
     public func rebuildSegments() {
-        self.segments = PinyinEngine.shared.parse(text: currentText, customMap: customPinyinMap)
+        self.segments = PinyinEngine.shared.parse(text: currentText, customMap: customPinyinMap, inputMethod: inputMethod)
+    }
+
+    public func setInputMethod(_ method: InputMethod) {
+        guard method != self.inputMethod else { return }
+        self.inputMethod = method
+        rebuildSegments()
+        saveData()
     }
 
     private func syncTextFromSegments() {
@@ -321,8 +338,8 @@ public final class AppState: ObservableObject {
         let leftType = PinyinEngine.shared.detectType(leftRaw)
         let rightType = PinyinEngine.shared.detectType(rightRaw)
 
-        let leftPinyin = customPinyinMap[leftRaw] ?? (leftType == .chinese ? PinyinEngine.shared.convertToPinyin(leftRaw) : leftRaw)
-        let rightPinyin = customPinyinMap[rightRaw] ?? (rightType == .chinese ? PinyinEngine.shared.convertToPinyin(rightRaw) : rightRaw)
+        let leftPinyin = customPinyinMap[leftRaw] ?? (leftType == .chinese ? PinyinEngine.shared.convertText(leftRaw, inputMethod: self.inputMethod) : leftRaw)
+        let rightPinyin = customPinyinMap[rightRaw] ?? (rightType == .chinese ? PinyinEngine.shared.convertText(rightRaw, inputMethod: self.inputMethod) : rightRaw)
 
         let leftSeg = WordSegment(
             raw: leftRaw,

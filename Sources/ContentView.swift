@@ -461,6 +461,60 @@ public struct ContentView: View {
     // MARK: - Settings Section (Dropdown Menus)
     private var settingsSection: some View {
         VStack(spacing: 0) {
+            // Input Method Dropdown Row
+            HStack(alignment: .center) {
+                Text("输入法")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(TyperTheme.textPrimary)
+
+                Spacer()
+
+                Menu {
+                    ForEach(InputMethod.allCases) { im in
+                        Button(action: {
+                            appState.setInputMethod(im)
+                        }) {
+                            HStack {
+                                Text(im.menuTitle)
+                                if appState.inputMethod == im {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(appState.inputMethod.rawValue)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(TyperTheme.textPrimary)
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundColor(TyperTheme.textSecondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(TyperTheme.itemBg)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(TyperTheme.borderFaint, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+
+            // Divider line
+            Rectangle()
+                .fill(TyperTheme.borderFaint)
+                .frame(height: 1)
+                .padding(.horizontal, 16)
+
             // Speed Dropdown Row
             HStack(alignment: .center) {
                 Text("速度")
@@ -688,7 +742,7 @@ public struct ContentView: View {
 
                 HStack(spacing: 10) {
                     Button(action: {
-                        let def = PinyinEngine.shared.convertToPinyin(segment.raw)
+                        let def = PinyinEngine.shared.convertText(segment.raw, inputMethod: appState.inputMethod)
                         appState.editPinyinText = def
                     }) {
                         Text("恢复默认")
