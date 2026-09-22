@@ -39,7 +39,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // Setup Status Item
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            if let img = NSImage(systemSymbolName: "keyboard.badge.waveform", accessibilityDescription: "Typer") {
+            let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+            if let img = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "Typer")?.withSymbolConfiguration(config) {
+                img.isTemplate = true
+                button.image = img
+            } else if let img = NSImage(systemSymbolName: "keyboard", accessibilityDescription: "Typer") {
                 img.isTemplate = true
                 button.image = img
             } else {
