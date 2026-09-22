@@ -92,7 +92,22 @@ ln -s ~/Applications/"${APP_BUNDLE}" ~/Desktop/"${APP_BUNDLE}"
 
 echo "📦 正在制作可分享的安装包 (DMG & ZIP)..."
 ditto -c -k --keepParent "${APP_BUNDLE}" ~/Desktop/Typer.zip
-hdiutil create -volname "Typer" -srcfolder "${APP_BUNDLE}" -ov -format UDZO ~/Desktop/Typer.dmg >/dev/null
+
+# 制作带 Applications 快捷方式的专业 DMG
+DMG_STAGE="dmg_staging"
+DMG_TMP="temp_uncompressed.dmg"
+rm -rf "$DMG_STAGE" "$DMG_TMP"
+mkdir -p "$DMG_STAGE/.background"
+
+cp -R "${APP_BUNDLE}" "$DMG_STAGE/"
+ln -s /Applications "$DMG_STAGE/Applications"
+
+# 生成背景指引图
+swift make_dmg_bg.swift "$DMG_STAGE/.background/background.png" 2>/dev/null || true
+
+hdiutil create -srcfolder "$DMG_STAGE" -volname "Typer" -fs HFS+ -format UDRW -ov "$DMG_TMP" >/dev/null
+hdiutil convert "$DMG_TMP" -format UDZO -imagekey zlib-level=9 -o ~/Desktop/Typer.dmg -ov >/dev/null
+rm -rf "$DMG_STAGE" "$DMG_TMP" dmg_bg.png
 
 echo "✅ 打包完成: ${APP_BUNDLE}"
 echo "🚀 已安装至: ~/Applications/${APP_BUNDLE}"
